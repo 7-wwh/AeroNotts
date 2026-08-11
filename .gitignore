@@ -1,0 +1,28 @@
+# Raw video footage (large, copyright/private)
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.m4v
+
+# Generated data - per-frame metrics, points, labels, models, plots
+video input/csv output/
+*_metrics.csv
+*_frames.csv
+*_points.csv
+*_labels.csv
+*_predictions.csv
+*_train_test.csv
+*.json
+*_report.txt
+*_metrics.png
+*_prediction.png
+*_importance.png
+*_predictions.png
+
+# Python
+__pycache__/
+*.pyc
+
+# Synthetic test videos
+test*.mp4
