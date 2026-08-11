@@ -1,20 +1,24 @@
-# Rocket Radial-Expansion Tracker
+# Rocket Visual-Motion Feature Extractor
 
 A computer-vision tool that watches how things in a rocket video **grow or
-shrink on screen** and turns that into per-frame motion metrics.
+shrink on screen** and turns that into a rich per-frame metrics CSV.
 
-It uses optical flow to track hundreds of points across the video, then measures
-the rate at which they slide outward (expansion / approaching) or inward
-(contraction / receding). The result is a clean per-frame metrics CSV you can
-use for whatever comes next — visualization, analysis, or feeding a machine
-learning model of your own.
+It doesn't bet on a single measurement. It measures **lots of visual-motion
+signals** — sparse radial flow, dense flow divergence, camera ego-motion,
+image appearance, and more — and writes them all to one CSV per frame. The
+philosophy: *you measure many things; the model (or your analysis) decides
+which combinations indicate ascent, descent, apogee, or approaching the
+ground.*
 
 ```
- launch.mp4 ──► rocket_flow.py ──► launch_metrics.csv  (per-frame motion features)
-                 │                    launch_metrics.png (plot)
+ launch.mp4 ──► rocket_flow.py ──► launch_metrics.csv  (72 per-frame feature columns)
+                 │                    launch_metrics.png (plot + apogee markers)
                  ▼
             launch_flow.mp4  (annotated video)
 ```
+
+Code is split into a `scripts/` package so each feature family is easy to
+find, edit, and test on its own (see §8).
 
 ---
 
@@ -23,8 +27,8 @@ learning model of your own.
 | Output | What it is |
 |--------|------------|
 | `<name>_flow.mp4` | The original video, re-drawn with each tracked point in its own **random color**, a motion **trail** for each point, and an on-screen HUD. |
-| `<name>_metrics.csv` | One row per frame: time, radial expansion, flow magnitude, flow-direction histogram, FOE position, expansion rate/acceleration, and state. |
-| `<name>_metrics.png` | A plot of expansion rate and acceleration over time with colored state bands. |
+| `<name>_metrics.csv` | One row per frame with 72 columns: sparse radial flow, dense-flow divergence, magnitude stats, 3×3 flow grid, camera ego-motion, homography, image appearance, horizon, FOE, smoothed velocity/acceleration, state and phase. |
+| `<name>_metrics.png` | A plot of expansion rate and acceleration over time with colored state bands and dashed apogee markers. |
 
 ---
 
@@ -185,6 +189,11 @@ python3 rocket_flow.py launch.mp4
 python3 rocket_flow.py launch.mp4 --draw-foe        # draw the expansion center
 python3 rocket_flow.py launch.mp4 --scale 0.5       # process at half resolution (faster)
 python3 rocket_flow.py launch.mp4 --no-plot         # skip the metrics plot
+python3 rocket_flow.py launch.mp4 --no-dense        # skip Farneback divergence/grid (faster)
+python3 rocket_flow.py launch.mp4 --no-homography   # skip homography columns
+python3 rocket_flow.py launch.mp4 --no-appearance   # skip image-appearance columns
+python3 rocket_flow.py launch.mp4 --no-horizon      # skip horizon detection
+python3 rocket_flow.py launch.mp4 --apogee-window 5 # widen the APOGEE phase around the peak
 
 # Generate a synthetic test video (expansion then contraction) to check everything
 python3 rocket_flow.py --synthetic test.mp4
@@ -199,38 +208,52 @@ if trails point *away* from the center, the state HUD should read `ASCEND`.
 
 **CSV** — each row is one frame. Columns:
 
-| Column | Meaning |
-|--------|---------|
-| `time_s` | seconds from start of video |
-| `radial_expansion` | average signed radial speed, px per frame (outward +, inward −) |
-| `flow_magnitude` | mean flow speed √(u²+v²) across all tracked points |
-| `flow_dir_hist_0..7` | 8-bin distribution of flow directions (0–360°), sums to 1 |
-| `foe_x`, `foe_y` | estimated Focus of Expansion |
-| `expansion_rate` | smoothed radial velocity (px/s) |
-| `expansion_acceleration` | smoothed acceleration (px/s²) |
-| `state` | ASCEND / DESCEND / STABLE |
+The CSV has 72 columns per frame, grouped by feature family. Missing
+measurements (e.g. frame 0, or a disabled group) are written as `nan`.
+
+| Group | Columns | Meaning |
+|-------|---------|---------|
+| Time / labels | `time_s`, `state`, `phase` | seconds; ASCEND/DESCEND/STABLE; flight phase incl. APOGEE |
+| Sparse radial | `radial_expansion`, `radial_expansion_median`, `radial_std`, `radial_p95` | signed radial speed of tracked points about the FOE (px/frame, + outward) |
+| | `outward_frac`, `inward_frac` | fraction of points expanding / contracting |
+| | `foe_x`, `foe_y` | estimated Focus of Expansion |
+| Tracking | `pt_displacement_mean/median/std/max` | per-frame displacement of tracked points |
+| | `point_count`, `point_density` | how many features are being tracked (density = per-pixel) |
+| | `feature_radius_mean/std` | spread of tracked points about the FOE → apparent-scale proxy |
+| Flow | `flow_magnitude`, `flow_dir_hist_0..7` | mean magnitude + 8-bin direction histogram (sums to 1) |
+| Dense flow | `flow_median/p95/std/max` | global magnitude stats from dense Farneback flow |
+| | `div_mean/median/std/p95/pos_frac/max` | flow divergence (whole field expanding/contracting) |
+| | `grid_flow_00..22` | mean flow magnitude per cell of a 3×3 grid → motion-field shape |
+| Camera | `cam_rotation/scale/tx/ty` | global affine rotation/scale/translation (RANSAC) |
+| | `residual_flow_mean/p95`, `residual_div` | flow left after subtracting the rigid camera model |
+| | `hom_scale/rotation/tx/ty/persp_x/persp_y/ok` | planar homography decomposition (RANSAC) |
+| Appearance | `edge_density`, `texture_var`, `grad_magnitude_mean`, `sharpness` | Canny density, gray variance, Sobel magnitude, Laplacian variance |
+| | `sky_fraction`, `ground_fraction` | crude bright/sky vs textured/ground pixel heuristic |
+| Horizon | `horizon_angle/pos/conf` | strongest Hough line: angle, normalized y, confidence (experimental) |
+| Temporal | `expansion_rate`, `expansion_acceleration` | smoothed radial velocity (px/s) and its derivative |
 
 `frame` is deliberately **not** a column — the rows are in frame order, and the
 frame number is just the row index (`time_s` is kept as a convenience).
 
-**Plot** — green bands = ASCEND, red bands = DESCEND. The velocity line
-crossing zero is the moment the rocket switches direction.
+**Plot** — green bands = ASCEND, red bands = DESCEND, dashed lines = APOGEE.
+The velocity line crossing zero is the moment the rocket switches direction.
 
 ### The five motion signals, explained
 
-Each metric is a different view of the same motion:
+The core sparse signals are the foundation; the dense/camera/appearance groups
+let the model see the *same* motion from independent angles:
 
 | Signal | What it captures |
 |--------|------------------|
 | `radial_expansion` | **How strongly** the image is growing (or shrinking). Positive = objects moving outward (approaching), negative = inward (receding). One number per frame. |
 | `flow_magnitude` | **How much** motion there is at all — mean speed of every tracked point. A busy smoke plume scores high even if it's not perfectly radial. |
 | `flow_dir_hist_0..7` | **Which directions** the motion points. Pure rocket zoom-in concentrates in the "toward-center" bins; camera shake spreads across all bins. Lets you tell "expansion" from "noise". |
-| `expansion_rate` | Smoothed radial velocity in px/s — the *speed* of size change. |
-| `expansion_acceleration` | How fast the rate of size change itself changes — sharp transitions (liftoff, burnout, parachute deploy) show up here. |
+| `div_mean` / `hom_scale` | **Global** expansion: dense-flow divergence and the homography zoom factor are far less dependent on the camera being upright. |
+| `cam_rotation` / `residual_flow_mean` | **Camera shake**: how much of the motion is the wobbly camera, and how much is left over after removing it. |
 
 Together: `flow_magnitude` says "something is moving", the histogram says "is it
-radial?", `radial_expansion` says "which way", and rate + acceleration describe
-the trajectory.
+radial?", `radial_expansion` says "which way", divergence/homography confirm it
+globally, and the camera group separates "true approach" from "camera wobble".
 
 ---
 
@@ -264,20 +287,43 @@ the trajectory.
 
 ---
 
-## 8. Where is the math in the code?
+## 8. Where is the code?
+
+`rocket_flow.py` is a thin CLI entry point; all logic lives in the `scripts/`
+package so each feature family is isolated and testable.
+
+```
+rocket_flow.py                 CLI entry: args, frame loop, CSV/plot/video output
+scripts/
+  io.py                        video open/write, output paths
+  state.py                     classify(), APOGEE phase detection, savgol/medfilt
+  schema.py                    CSV column names + order (single source of truth)
+  draw.py                      HUD, trails, random colors, FOE crosshair
+  synth.py                     synthetic test-video generator
+  plot.py                      metrics plot + state bands + apogee markers
+  features/
+    sparse.py                  LK tracking, FOE, radial speed, displacement, density
+    dense.py                   Farneback divergence, magnitude stats, 3x3 grid
+    camera.py                  affine rotation/translation, residual flow, homography
+    appearance.py              edges, texture, sharpness, sky/ground heuristic
+    horizon.py                 Hough-line horizon detection (experimental)
+```
 
 | Idea | Where |
 |------|-------|
-| Shi-Tomasi corner selection | `cv2.goodFeaturesToTrack` (main loop) |
-| Lucas-Kanade tracking | `cv2.calcOpticalFlowPyrLK` (main loop) |
-| Backward round-trip check | `cv2.calcOpticalFlowPyrLK(gray, prev_gray, p1, ...)` |
-| FOE least-squares | `estimate_foe()` — the 2×2 system |
-| Radial speed | `radial_speeds()` |
-| Flow magnitude + direction histogram | main loop (`np.hypot`, `np.histogram` on `arctan2`) |
-| State classification | `classify()` |
-| Smoothing / acceleration | `savgol_filter`, `np.gradient` |
-| State de-flickering | `scipy.signal.medfilt` |
-| Synthetic test generator | `generate_synthetic()` |
+| Shi-Tomasi corner selection | `scripts/features/sparse.py` (`goodFeaturesToTrack`) |
+| Lucas-Kanade tracking | `scripts/features/sparse.py` (`calcOpticalFlowPyrLK`) |
+| Backward round-trip check | `scripts/features/sparse.py` |
+| FOE least-squares | `scripts/features/sparse.py` (`estimate_foe()` — the 2×2 system) |
+| Radial speed | `scripts/features/sparse.py` (`radial_speeds()`) |
+| Dense divergence | `scripts/features/dense.py` (`divergence()`, `np.gradient`) |
+| 3×3 flow grid | `scripts/features/dense.py` (`grid_flow()`) |
+| Camera rotation / residual | `scripts/features/camera.py` (`affine_model()`, `residual_flow()`) |
+| Homography decomposition | `scripts/features/camera.py` (`homography_model()`) |
+| Appearance features | `scripts/features/appearance.py` |
+| Horizon detection | `scripts/features/horizon.py` |
+| State / APOGEE / smoothing | `scripts/state.py` (`classify`, `detect_apogee`, `savgol_filter`, `medfilt`) |
+| Synthetic test generator | `scripts/synth.py` |
 
 The math behind the FOE is a standard computer-vision result called the
 **Focus of Expansion / Focus of Contraction** estimation (Horn's optical-flow

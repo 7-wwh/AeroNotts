@@ -1,0 +1,88 @@
+"""Single source of truth for the metrics CSV columns.
+
+Every feature module reads its column list from here, and the CSV writer emits
+exactly these columns in this order. Adding a feature means adding its column
+to this list (and its value to the per-frame feature dict).
+"""
+
+COLUMNS = [
+    # time + labels
+    "time_s",
+    "state",
+    "phase",
+    # sparse optical-flow features (LK tracking of Shi-Tomasi points)
+    "radial_expansion",
+    "radial_expansion_median",
+    "radial_std",
+    "radial_p95",
+    "outward_frac",
+    "inward_frac",
+    "pt_displacement_mean",
+    "pt_displacement_median",
+    "pt_displacement_std",
+    "pt_displacement_max",
+    "point_count",
+    "point_density",
+    "feature_radius_mean",
+    "feature_radius_std",
+    "flow_magnitude",
+    "flow_dir_hist_0",
+    "flow_dir_hist_1",
+    "flow_dir_hist_2",
+    "flow_dir_hist_3",
+    "flow_dir_hist_4",
+    "flow_dir_hist_5",
+    "flow_dir_hist_6",
+    "flow_dir_hist_7",
+    "foe_x",
+    "foe_y",
+    # dense optical-flow features (Farneback)
+    "flow_median",
+    "flow_p95",
+    "flow_std",
+    "flow_max",
+    "div_mean",
+    "div_median",
+    "div_std",
+    "div_p95",
+    "div_pos_frac",
+    "div_max",
+    "grid_flow_00",
+    "grid_flow_01",
+    "grid_flow_02",
+    "grid_flow_10",
+    "grid_flow_11",
+    "grid_flow_12",
+    "grid_flow_20",
+    "grid_flow_21",
+    "grid_flow_22",
+    # camera ego-motion (affine rotation/translation + residual + homography)
+    "cam_rotation",
+    "cam_scale",
+    "cam_tx",
+    "cam_ty",
+    "residual_flow_mean",
+    "residual_flow_p95",
+    "residual_div",
+    "hom_scale",
+    "hom_rotation",
+    "hom_tx",
+    "hom_ty",
+    "hom_persp_x",
+    "hom_persp_y",
+    "hom_ok",
+    # image appearance
+    "edge_density",
+    "texture_var",
+    "grad_magnitude_mean",
+    "sharpness",
+    "sky_fraction",
+    "ground_fraction",
+    # horizon (experimental)
+    "horizon_angle",
+    "horizon_pos",
+    "horizon_conf",
+    # temporal (post-processed)
+    "expansion_rate",
+    "expansion_acceleration",
+]
