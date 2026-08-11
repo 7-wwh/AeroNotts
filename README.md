@@ -222,11 +222,20 @@ Cheap per-frame stats that support the motion features:
 
   A **median filter** over the last few frames removes flicker (a single noisy
   frame shouldn't flip the label).
-- **Phase**: on top of the states, the smoothed velocity crossing from positive
-  to negative marks **APOGEE** — the peak of the flight. The crossing frame
-  plus `--apogee-window` (default 3) frames on either side are labelled
-  `APOGEE` in the `phase` column. `state` stays the raw direction;
-  `phase` is the flight-phase label.
+- **Phase**: a flight has exactly **one ascent, one apogee, one descent**. The
+  script builds an altitude proxy (the cumulative integral of radial velocity)
+  and takes its **single global peak** as the apogee. It then splits the flight
+  around it:
+  - idle frames before liftoff → `STABLE` (on the pad)
+  - `ASCEND` up to `--apogee-window` frames before the peak
+  - `APOGEE` around the peak (`--apogee-window`, default 3, frames each side)
+  - `DESCEND` down to landing
+  - idle frames after landing → `STABLE`
+  `--idle-min-frames` (default 5) controls how sustained the motion must be to
+  count as flying. `state` stays the per-frame direction classifier;
+  `phase` is the clean one-of-each trajectory label. Videos that only show part
+  of the flight degrade gracefully (no leading/trailing STABLE, or an empty
+  ASCEND/DESCEND side).
 
 ---
 
@@ -250,6 +259,7 @@ python3 rocket_flow.py launch.mp4 --no-homography   # skip homography columns
 python3 rocket_flow.py launch.mp4 --no-appearance   # skip image-appearance columns
 python3 rocket_flow.py launch.mp4 --no-horizon      # skip horizon detection
 python3 rocket_flow.py launch.mp4 --apogee-window 5 # widen the APOGEE phase around the peak
+python3 rocket_flow.py launch.mp4 --idle-min-frames 10  # longer window to spot idle STABLE pads
 
 # Generate a synthetic test video (expansion then contraction) to check everything
 python3 rocket_flow.py --synthetic test.mp4
@@ -350,7 +360,7 @@ package so each feature family is isolated and testable.
 rocket_flow.py                 CLI entry: args, frame loop, CSV/plot/video output
 scripts/
   io.py                        video open/write, output paths
-  state.py                     classify(), APOGEE phase detection, savgol/medfilt
+  state.py                     classify(), global flight phases (1 apogee), smoothing
   schema.py                    CSV column names + order (single source of truth)
   draw.py                      HUD, trails, random colors, FOE crosshair
   synth.py                     synthetic test-video generator
@@ -376,7 +386,7 @@ scripts/
 | Homography decomposition | `scripts/features/camera.py` (`homography_model()`) |
 | Appearance features | `scripts/features/appearance.py` |
 | Horizon detection | `scripts/features/horizon.py` |
-| State / APOGEE / smoothing | `scripts/state.py` (`classify`, `detect_apogee`, `savgol_filter`, `medfilt`) |
+| State / APOGEE / smoothing | `scripts/state.py` (`classify`, `flight_phases`, `savgol_filter`, `medfilt`) |
 | Synthetic test generator | `scripts/synth.py` |
 
 The math behind the FOE is a standard computer-vision result called the

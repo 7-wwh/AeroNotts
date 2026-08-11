@@ -64,6 +64,8 @@ def parse_args():
                     help="median window to de-flicker state labels (odd, 1 disables)")
     g2.add_argument("--apogee-window", type=int, default=3,
                     help="frames either side of the velocity crossing marked APOGEE")
+    g2.add_argument("--idle-min-frames", type=int, default=5,
+                    help="median window to detect idle STABLE pads at start/end (odd, 1 disables)")
     g2.add_argument("--trail", type=int, default=20, help="max trail length per point")
 
     g3 = p.add_argument_group("feature groups (all on by default)")
@@ -204,7 +206,10 @@ def main():
 
     # ---- post-processing: velocity, acceleration, de-flickered state, phase ----
     radial = np.array([r["radial_expansion"] for r in rows], dtype=float)
+    radial = np.nan_to_num(radial, nan=0.0)   # no-tracking frames = no motion
     ts = np.array(times)
+    dt = np.diff(ts, prepend=ts[0])
+    dt[dt <= 0] = 1.0 / fps
     vel = radial * fps * inv                     # px/s in original resolution
 
     win = args.smooth
@@ -219,7 +224,9 @@ def main():
 
     clean_states = state.deflicker(states, args.state_median)
     labels = [state.map_state(s, args.descend_is_expansion) for s in clean_states]
-    phases = state.assign_phases(labels, vel_s, args.apogee_window)
+    phases = state.flight_phases(vel_s, dt, args.apogee_window,
+                                 args.thresh * fps, args.idle_min_frames,
+                                 args.descend_is_expansion)
 
     write_csv(out_csv, rows, ts, vel_s, accel, labels, phases)
 

@@ -50,23 +50,50 @@ def deflicker(states, window):
     return [_INV_CODE[int(c)] for c in arr]
 
 
-def detect_apogee(vel_s, apogee_window):
-    """Frames where smoothed velocity crosses from positive to negative.
+def flight_phases(vel_s, dt, apogee_window, thresh_px_s, idle_min_frames, invert):
+    """Global flight-trajectory phases: STABLE pads + one ASCEND / APOGEE / DESCEND.
 
-    Apogee is the peak of the flight: expansion stops and contraction begins.
-    Mark the crossing frame plus `apogee_window` frames on either side.
+    A real rocket launch has exactly one ascent, one apogee, one descent, with
+    idle STABLE pads before liftoff and after landing. Instead of marking every
+    velocity zero-crossing (noisy), we find the single peak of an altitude proxy
+    (the cumulative integral of radial velocity) and split the flight around it.
+
+    Returns a list of phase labels ('STABLE'/'ASCEND'/'APOGEE'/'DESCEND').
     """
     n = len(vel_s)
-    apogee = np.zeros(n, dtype=bool)
-    for i in range(1, n):
-        if vel_s[i - 1] > 0 and vel_s[i] <= 0:
-            lo = max(0, i - apogee_window)
-            hi = min(n, i + apogee_window + 1)
-            apogee[lo:hi] = True
-    return apogee
+    if n == 0:
+        return []
 
+    ascent_sign = -1.0 if invert else 1.0
+    alt = np.cumsum(vel_s * ascent_sign * dt)
+    apogee_idx = int(np.argmax(alt))
 
-def assign_phases(states, vel_s, apogee_window):
-    """Add the APOGEE phase on top of the ASCEND/DESCEND/STABLE states."""
-    apogee = detect_apogee(vel_s, apogee_window)
-    return [APO if a else s for a, s in zip(apogee, states)]
+    # sustained-motion mask -> liftoff / landing boundaries for the STABLE pads
+    moving = np.abs(vel_s) >= thresh_px_s
+    if idle_min_frames > 1 and n >= 3:
+        w = min(idle_min_frames, n)
+        if w % 2 == 0:
+            w += 1
+        moving = medfilt(moving.astype(float), kernel_size=w) > 0.5
+    idx = np.where(moving)[0]
+    pre = idx[idx < apogee_idx]
+    post = idx[idx > apogee_idx]
+    liftoff = int(pre[0]) if len(pre) else 0
+    landing = int(post[-1]) if len(post) else n - 1
+
+    lo = max(0, apogee_idx - apogee_window)
+    hi = min(n, apogee_idx + apogee_window + 1)
+
+    phases = []
+    for i in range(n):
+        if i < liftoff:
+            phases.append(STAB)
+        elif i < lo:
+            phases.append(ASC)
+        elif i < hi:
+            phases.append(APO)
+        elif i <= landing:
+            phases.append(DESC)
+        else:
+            phases.append(STAB)
+    return phases
