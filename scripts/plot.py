@@ -1,4 +1,4 @@
-"""Metrics plot: velocity / acceleration / phase vs time."""
+"""Metrics plot: height / velocity / acceleration / phase vs time."""
 
 import numpy as np
 
@@ -13,7 +13,7 @@ _PHASE_COLORS = {
 _PHASE_ORDER = [st.STAB, st.ASC, st.APO, st.DESC]
 
 
-def render(ts, vel_raw, vel_s, accel, states, phases, out_plot, input_name):
+def render(ts, height, vel_raw, vel_s, accel, states, phases, out_plot, input_name):
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -26,9 +26,20 @@ def render(ts, vel_raw, vel_s, accel, states, phases, out_plot, input_name):
     MPL = {s: tuple(int(c) / 255.0 for c in reversed(st.STATE_COLORS[s]))
            for s in st.STATE_COLORS}
 
-    fig, (ax1, ax2, ax3) = plt.subplots(
-        3, 1, figsize=(11, 8), sharex=True,
-        gridspec_kw={"height_ratios": [2, 2, 1]})
+    fig, (axh, ax1, ax2, ax3) = plt.subplots(
+        4, 1, figsize=(11, 10), sharex=True,
+        gridspec_kw={"height_ratios": [2, 2, 2, 1]})
+
+    # predicted height (altitude proxy) as the headline panel
+    axh.plot(ts, height, color="#e377c2", lw=1.8, label="predicted height")
+    apex = int(np.argmax(height))
+    if apex < len(ts):
+        axh.axvline(ts[apex], color="k", ls="--", lw=1.2, alpha=0.7)
+        axh.plot(ts[apex], height[apex], marker="o", color="k", ms=5, zorder=5)
+    axh.set_ylabel("height, px")
+    axh.set_title(f"Rocket flight — predicted height & motion — {input_name}")
+    axh.legend(loc="best", fontsize=9)
+    axh.grid(alpha=0.3)
 
     # state bands on velocity axis
     prev_s = None
@@ -60,7 +71,6 @@ def render(ts, vel_raw, vel_s, accel, states, phases, out_plot, input_name):
     ax1.plot(ts, vel_s, color="#1f77b4", lw=1.8, label="velocity smoothed")
     ax1.axhline(0, color="k", lw=0.7)
     ax1.set_ylabel("radial velocity (px/s)")
-    ax1.set_title(f"Rocket radial expansion metrics — {input_name}")
     ax1.legend(loc="best", fontsize=9)
     ax1.grid(alpha=0.3)
 

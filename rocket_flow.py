@@ -228,10 +228,13 @@ def main():
                                  args.thresh * fps, args.idle_min_frames,
                                  args.descend_is_expansion)
 
+    ascent_sign = -1.0 if args.descend_is_expansion else 1.0
+    height = np.cumsum(vel_s * ascent_sign * dt)   # altitude proxy, px
+
     write_csv(out_csv, rows, ts, vel_s, accel, labels, phases)
 
     if not args.no_plot:
-        plot.render(ts, vel, vel_s, accel, labels, phases, out_plot,
+        plot.render(ts, height, vel, vel_s, accel, labels, phases, out_plot,
                     os.path.basename(args.input))
 
     print(f"wrote annotated video: {out_video}  ({frame_idx} frames)")
