@@ -1,8 +1,16 @@
-"""Metrics plot: velocity/acceleration with state bands and apogee markers."""
+"""Metrics plot: velocity / acceleration / phase vs time."""
 
 import numpy as np
 
 from . import state as st
+
+_PHASE_COLORS = {
+    st.STAB: "#c8c8c8",
+    st.ASC: "#3cb54a",
+    st.APO: "#ffb400",
+    st.DESC: "#3c3cf0",
+}
+_PHASE_ORDER = [st.STAB, st.ASC, st.APO, st.DESC]
 
 
 def render(ts, vel_raw, vel_s, accel, states, phases, out_plot, input_name):
@@ -18,7 +26,9 @@ def render(ts, vel_raw, vel_s, accel, states, phases, out_plot, input_name):
     MPL = {s: tuple(int(c) / 255.0 for c in reversed(st.STATE_COLORS[s]))
            for s in st.STATE_COLORS}
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
+    fig, (ax1, ax2, ax3) = plt.subplots(
+        3, 1, figsize=(11, 8), sharex=True,
+        gridspec_kw={"height_ratios": [2, 2, 1]})
 
     # state bands on velocity axis
     prev_s = None
@@ -57,15 +67,25 @@ def render(ts, vel_raw, vel_s, accel, states, phases, out_plot, input_name):
     ax2.plot(ts, accel, color="#d62728", lw=1.6, label="acceleration")
     ax2.axhline(0, color="k", lw=0.7)
     ax2.set_ylabel("acceleration (px/s^2)")
-    ax2.set_xlabel("time (s)")
     ax2.legend(loc="best", fontsize=9)
     ax2.grid(alpha=0.3)
+
+    # phase vs time as colored bands
+    ax3.set_yticks(range(len(_PHASE_ORDER)))
+    ax3.set_yticklabels(_PHASE_ORDER, fontsize=8)
+    for i in range(1, len(ts)):
+        ax3.axvspan(ts[i - 1], ts[i], color=_PHASE_COLORS[phases[i - 1]],
+                    alpha=0.9, lw=0)
+    ax3.set_ylim(-0.5, len(_PHASE_ORDER) - 0.5)
+    ax3.set_xlabel("time (s)")
+    ax3.set_title("phase")
 
     handles = [Patch(facecolor=MPL[st.ASC], alpha=0.5, label=f"ASCEND ({st.ASC})"),
                Patch(facecolor=MPL[st.DESC], alpha=0.5, label=f"DESCEND ({st.DESC})"),
                Patch(facecolor=MPL[st.STAB], alpha=0.5, label="STABLE"),
+               Patch(facecolor=_PHASE_COLORS[st.APO], alpha=0.8, label="APOGEE"),
                Patch(facecolor="none", label="--- apogee")]
-    fig.legend(handles=handles, loc="upper center", ncol=4, frameon=True,
+    fig.legend(handles=handles, loc="upper center", ncol=5, frameon=True,
                bbox_to_anchor=(0.5, 0.995), fontsize=9)
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     fig.savefig(out_plot, dpi=130)
