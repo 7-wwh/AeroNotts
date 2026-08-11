@@ -11,10 +11,10 @@ which combinations indicate ascent, descent, apogee, or approaching the
 ground.*
 
 ```
- launch.mp4 ──► rocket_flow.py ──► launch_metrics.csv  (72 per-frame feature columns)
-                 │                    launch_metrics.png (plot + apogee markers)
+ launch.mp4 ──► rocket_flow.py ──► csv output/launch_metrics.csv   (72 per-frame feature columns)
+                 │                    csv output/launch_metrics.png (plot + apogee markers)
                  ▼
-            launch_flow.mp4  (annotated video)
+            csv output/launch_flow.mp4  (annotated video)
 ```
 
 Code is split into a `scripts/` package so each feature family is easy to
@@ -60,7 +60,10 @@ called the **Focus of Expansion (FOE)**.
 
 ## 3. The pipeline, step by step
 
-The script does five things every frame, in a loop:
+Every frame the script runs several independent feature families: sparse
+tracking (steps 1–4), dense flow (step 5), camera ego-motion (step 6), and
+image appearance (step 7), then post-processes everything into smoothed
+velocity, state, and flight phase (step 8).
 
 ### Step 1 — Pick good "points" to watch (Shi-Tomasi corner detection)
 
@@ -154,7 +157,54 @@ vr = (u·dx + v·dy) / r
 
 Per frame we average `vr` over all tracked points to get one clean number.
 
-### Step 5 — Velocity, acceleration, and the verdict
+### Step 5 — Dense flow: divergence, magnitude stats, and spatial grid
+
+On top of the sparse points, the script runs **dense** optical flow
+(Farneback) between every frame pair, giving a flow vector for *every* pixel.
+From it we get three independent views:
+
+- **Divergence** `div = du/dx + dv/dy` — one number saying whether the *whole
+  visual field* is expanding (positive) or contracting (negative). Unlike
+  radial speed it doesn't need a known center, so it's robust to the camera
+  being tilted. Reported as `div_mean/median/std/p95/pos_frac/max`.
+- **Magnitude stats** `flow_median/p95/std/max` — how much the whole image is
+  moving, in percentiles.
+- **Spatial grid** `grid_flow_00..22` — the mean flow magnitude in each cell of
+  a 3×3 grid. This captures the *shape* of the motion field (e.g. everything
+  flowing toward one corner vs. expanding from the middle), which one global
+  number can't.
+
+### Step 6 — Camera ego-motion: rotation, residual, homography
+
+A wobbly camera pollutes the radial measurement, so we estimate the camera's
+own motion and hand the model both the camera motion *and* the motion left
+after removing it:
+
+- **Affine model** (RANSAC `estimateAffinePartial2D`): a global
+  rotation/scale/translation fit to the tracked points →
+  `cam_rotation/scale/tx/ty`.
+- **Residual flow**: the per-point flow minus the rigid camera model — what's
+  *left* after subtracting rotation/translation. Its magnitude and divergence
+  (`residual_flow_mean/p95`, `residual_div`) are the "true approach" signal.
+- **Homography** (RANSAC `findHomography`): a planar model whose
+  scale/rotation/translation/perspective terms
+  (`hom_scale/rotation/tx/ty/persp_x/persp_y/ok`) estimate global zoom
+  (approach vs. retreat) even when the scene is roughly a plane.
+
+### Step 7 — Image appearance: edges, texture, sharpness, sky/ground
+
+Cheap per-frame stats that support the motion features:
+
+- **Sharpness** = Laplacian variance; **edge density** = Canny edge fraction;
+  **texture** = gray variance; **gradient magnitude** = mean Sobel response.
+  As the rocket approaches, ground detail typically increases.
+- **Sky/ground fractions** — a crude heuristic (bright/low-saturation pixels =
+  sky, darker/textured = ground). Approximate, not a vision model.
+- **Horizon** (experimental) — the strongest long straight Hough line, reported
+  as angle / normalized position / confidence. The camera may be tilted, so the
+  angle is measured rather than assumed horizontal.
+
+### Step 8 — Velocity, acceleration, state, and flight phase
 
 - **Velocity** `= mean(vr) × fps` converts from pixels-per-frame to pixels-per-second.
 - The raw per-frame value is noisy, so it's smoothed with a **Savitzky–Golay
@@ -172,6 +222,11 @@ Per frame we average `vr` over all tracked points to get one clean number.
 
   A **median filter** over the last few frames removes flicker (a single noisy
   frame shouldn't flip the label).
+- **Phase**: on top of the states, the smoothed velocity crossing from positive
+  to negative marks **APOGEE** — the peak of the flight. The crossing frame
+  plus `--apogee-window` (default 3) frames on either side are labelled
+  `APOGEE` in the `phase` column. `state` stays the raw direction;
+  `phase` is the flight-phase label.
 
 ---
 
@@ -183,7 +238,8 @@ pip install opencv-python numpy scipy matplotlib
 
 # Extract metrics from your video
 python3 rocket_flow.py launch.mp4
-#   produces launch_flow.mp4, launch_metrics.csv, launch_metrics.png
+#   writes launch_flow.mp4, launch_metrics.csv, launch_metrics.png
+#   into a "csv output" folder next to the input video
 
 # Optional tweaks
 python3 rocket_flow.py launch.mp4 --draw-foe        # draw the expansion center
@@ -206,9 +262,7 @@ python3 rocket_flow.py --synthetic test.mp4
 **Annotated video** — each tracked point has a fixed random color. Watch a trail:
 if trails point *away* from the center, the state HUD should read `ASCEND`.
 
-**CSV** — each row is one frame. Columns:
-
-The CSV has 72 columns per frame, grouped by feature family. Missing
+**CSV** — one row per frame, 72 columns grouped by feature family. Missing
 measurements (e.g. frame 0, or a disabled group) are written as `nan`.
 
 | Group | Columns | Meaning |
