@@ -37,11 +37,6 @@ def parse_args():
     p.add_argument("--plot", help="output metrics plot (default: <input>_metrics.png)")
     p.add_argument("--no-plot", action="store_true",
                    help="skip the metrics plot (headless / batch use)")
-    p.add_argument("--points-csv", help="output per-point CSV (default: <input>_points.csv)")
-    p.add_argument("--no-points-csv", action="store_true",
-                   help="do not write the per-point CSV")
-    p.add_argument("--frames-csv", help="output frames CSV with frame/time "
-                                        "alignment (default: <input>_frames.csv)")
     p.add_argument("--synthetic", metavar="OUT.mp4",
                    help="instead of processing, generate a synthetic test video of "
                         "radial expansion then contraction and exit")
@@ -207,8 +202,6 @@ def main():
     out_video = args.out or f"{base}_flow.mp4"
     out_csv = args.csv or f"{base}_metrics.csv"
     out_plot = args.plot or f"{base}_metrics.png"
-    out_points = None if args.no_points_csv else (args.points_csv or f"{base}_points.csv")
-    out_frames = args.frames_csv or f"{base}_frames.csv"
 
     cap = cv2.VideoCapture(args.input)
     if not cap.isOpened():
@@ -249,7 +242,6 @@ def main():
     trail_len = max(1, args.trail)
 
     rows = []          # per-frame metric rows
-    point_rows = [] if out_points else None   # per-point rows
     states = []        # raw state per frame
     times = []
     prev_gray = None
@@ -332,14 +324,6 @@ def main():
                     if not args.no_arrows:
                         cv2.arrowedLine(frame, (int(prv[0]), int(prv[1])),
                                         (int(cur[0]), int(cur[1])), col, 1, cv2.LINE_AA, tipLength=0.3)
-                    if point_rows is not None:
-                        point_rows.append((
-                            frame_idx, t, int(pid),
-                            float(cur[0]) * inv, float(cur[1]) * inv,
-                            float(flow[i, 0]) * inv, float(flow[i, 1]) * inv,
-                            float(vr[i]) if foe_c is not None else np.nan,
-                            float(state_code(state)) if foe_c is not None else 0,
-                        ))
 
                 # replace lost points
                 p0 = good_cur.astype(np.float32)
@@ -462,22 +446,6 @@ def main():
                     f"{r[12]:.2f},{r[13]:.2f},"
                     f"{vel_s[i]:.4f},{accel[i]:.4f},{labels[i]}\n")
     print(f"wrote metrics CSV: {out_csv}")
-
-    # ---- frames CSV (frame alignment, kept out of the model input) ----
-    with open(out_frames, "w") as f:
-        f.write("frame,time_s\n")
-        for r in rows:
-            f.write(f"{r[0]},{r[1]:.4f}\n")
-    print(f"wrote frames CSV: {out_frames}")
-
-    # ---- per-point CSV ----
-    if point_rows:
-        with open(out_points, "w") as f:
-            f.write("frame,time_s,point_id,x,y,flow_u,flow_v,radial_speed,state_code\n")
-            for r in point_rows:
-                f.write(f"{r[0]},{r[1]:.4f},{r[2]},{r[3]:.2f},{r[4]:.2f},"
-                        f"{r[5]:.2f},{r[6]:.2f},{r[7]:.4f},{r[8]}\n")
-        print(f"wrote points CSV: {out_points}")
 
     # ---- plot ----
     try:

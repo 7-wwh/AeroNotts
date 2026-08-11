@@ -1,70 +1,30 @@
 # Rocket Radial-Expansion Tracker
 
-A beginner-friendly machine-learning project that predicts **how high a rocket
-is off the ground** by watching how things in the video grow or shrink on
-screen.
+A computer-vision tool that watches how things in a rocket video **grow or
+shrink on screen** and turns that into per-frame motion metrics.
 
-It works in three stages:
-
-1. **Feature extraction (OpenCV)** — `rocket_flow.py` looks through the video
-   with optical flow, tracks hundreds of points, and writes their motion to a
-   CSV. This is the "eyes" of the model.
-2. **Labeling (you)** — `label_altitude.py` lets you type in the real altitude
-   for each frame (from telemetry, a barometer, or knowing when the rocket
-   left the pad). This is the "answer key" the model learns from.
-3. **Training (XGBoost)** — `train_model.py` learns to map the motion features
-   to altitude, then can predict altitude on new footage it has never seen.
+It uses optical flow to track hundreds of points across the video, then measures
+the rate at which they slide outward (expansion / approaching) or inward
+(contraction / receding). The result is a clean per-frame metrics CSV you can
+use for whatever comes next — visualization, analysis, or feeding a machine
+learning model of your own.
 
 ```
- launch.mp4 ──► rocket_flow.py ──► launch_metrics.csv ──┐
-                                               (features) │
-                                                  (you)   ▼
-                                         label_altitude.py ├─► launch_labels.csv
-                                               (answers)  │        │
-                                                          │        ▼
-                                                         train_model.py ──► launch_xgb.json (model)
-                                                          │
-                                                          ▼
-                                          predict_altitude.py ──► altitude over time
-                                              (new footage / features)
+ launch.mp4 ──► rocket_flow.py ──► launch_metrics.csv  (per-frame motion features)
+                 │                    launch_metrics.png (plot)
+                 ▼
+            launch_flow.mp4  (annotated video)
 ```
 
 ---
 
 ## 1. What you get (outputs)
 
-### From `rocket_flow.py` (the feature extractor)
-
 | Output | What it is |
 |--------|------------|
 | `<name>_flow.mp4` | The original video, re-drawn with each tracked point in its own **random color**, a motion **trail** for each point, and an on-screen HUD. |
-| `<name>_metrics.csv` | One row per frame: time, radial expansion, flow magnitude, flow-direction histogram, FOE position, expansion rate/acceleration, and state. **This is the feature file for the model.** |
-| `<name>_frames.csv` | `frame,time_s` alignment file (one row per frame, same order as the metrics CSV). Used to map labels onto frames — `frame` is deliberately kept out of the model input. |
-| `<name>_points.csv` | One row per *tracked point*: frame, point id, x/y position, flow `(u,v)`, radial speed. Useful for diagnostics and custom features. |
+| `<name>_metrics.csv` | One row per frame: time, radial expansion, flow magnitude, flow-direction histogram, FOE position, expansion rate/acceleration, and state. |
 | `<name>_metrics.png` | A plot of expansion rate and acceleration over time with colored state bands. |
-
-### From `label_altitude.py` (your ground truth)
-
-| Output | What it is |
-|--------|------------|
-| `<name>_labels.csv` | `frame,altitude` — the true altitude you entered for each frame. |
-
-### From `train_model.py` (the machine learning)
-
-| Output | What it is |
-|--------|------------|
-| `<name>_xgb.json` | The trained XGBoost model (load with `xgb.Booster()`). |
-| `<name>_train_test.csv` | Every labeled frame with features + true altitude + predicted altitude. |
-| `<name>_prediction.png` | True vs predicted altitude over time, with the test split marked. |
-| `<name>_importance.png` | Which features the model found most important. |
-| `<name>_report.txt` | Test RMSE, MAE, R² — how good the model is. |
-
-### From `predict_altitude.py` (using the model on new footage)
-
-| Output | What it is |
-|--------|------------|
-| `<name>_predictions.csv` | `frame,time_s,altitude_m` — predicted altitude for every frame. |
-| `<name>_predictions.png` | Predicted altitude vs time plot. |
 
 ---
 
@@ -215,44 +175,20 @@ Per frame we average `vr` over all tracked points to get one clean number.
 
 ```bash
 # Install once (only needed on a fresh machine)
-pip install opencv-python numpy scipy matplotlib xgboost pandas scikit-learn
+pip install opencv-python numpy scipy matplotlib
 
-# ---------- STEP 1: extract features from your video ----------
+# Extract metrics from your video
 python3 rocket_flow.py launch.mp4
-#   produces launch_flow.mp4, launch_metrics.csv, launch_frames.csv,
-#           launch_points.csv, launch_metrics.png
-#   (the *_frames.csv file maps frame numbers to time_s and is used to align
-#    your labels; frame is deliberately NOT in the model-facing metrics CSV)
+#   produces launch_flow.mp4, launch_metrics.csv, launch_metrics.png
 
 # Optional tweaks
 python3 rocket_flow.py launch.mp4 --draw-foe        # draw the expansion center
 python3 rocket_flow.py launch.mp4 --scale 0.5       # process at half resolution (faster)
-python3 rocket_flow.py launch.mp4 --no-points-csv   # skip the per-point CSV
+python3 rocket_flow.py launch.mp4 --no-plot         # skip the metrics plot
 
 # Generate a synthetic test video (expansion then contraction) to check everything
 python3 rocket_flow.py --synthetic test.mp4
-
-# ---------- STEP 2: label the true altitude frame by frame ----------
-python3 label_altitude.py launch_metrics.csv
-#   interactive: type a number to label the current frame, Enter = repeat
-#   previous value, '.' = skip, '100 200 45' = label frames 100-200 as 45m,
-#   's 0' = set all frames to 0 (pad), 'save' = write launch_labels.csv
-#   (auto-uses launch_frames.csv for frame/time alignment)
-
-# ---------- STEP 3: train the XGBoost altitude model ----------
-python3 train_model.py launch_metrics.csv launch_labels.csv
-#   produces launch_xgb.json + prediction/importance plots + report.txt
-#   (auto-uses launch_frames.csv for alignment)
-
-# ---------- STEP 4 (later): predict on new footage ----------
-python3 predict_altitude.py new_video.mp4 --model launch_xgb.json
-#   or reuse an existing features CSV (no re-analysis):
-python3 predict_altitude.py --features launch_metrics.csv --model launch_xgb.json
 ```
-
-> **Tip:** label as many frames as you realistically can — a few hundred labeled
-> frames makes a far more reliable model than a few dozen. If you have telemetry,
-> label dense ranges (`0 90 0` for frames 0–90 = 0 m) instead of frame-by-frame.
 
 ---
 
@@ -274,37 +210,27 @@ if trails point *away* from the center, the state HUD should read `ASCEND`.
 | `expansion_acceleration` | smoothed acceleration (px/s²) |
 | `state` | ASCEND / DESCEND / STABLE |
 
-`frame` is **not** in this file — it lives in `<name>_frames.csv` (same row
-order) and is used only to align your altitude labels; it is never a model
-feature. `time_s` *is* kept in the metrics file; whether the model uses it is
-your choice via the `--time-feature` flag.
-
-These are the raw per-frame metrics. When training, `train_model.py` also
-**derives extra history features** from them — a running velocity integral
-(`vel_cumsum`, since altitude ≈ ∫ velocity), rolling averages, and time-lagged
-velocities — because a rocket's height depends on where it *was*, not just where
-it is now. The full feature list is embedded in the saved model, and
-`predict_altitude.py` automatically uses exactly those columns.
+`frame` is deliberately **not** a column — the rows are in frame order, and the
+frame number is just the row index (`time_s` is kept as a convenience).
 
 **Plot** — green bands = ASCEND, red bands = DESCEND. The velocity line
 crossing zero is the moment the rocket switches direction.
 
-### The five model signals, explained
+### The five motion signals, explained
 
-The metrics CSV feeds the XGBoost model. Each is a different view of the same
-motion, so the model can learn to combine them:
+Each metric is a different view of the same motion:
 
 | Signal | What it captures |
 |--------|------------------|
 | `radial_expansion` | **How strongly** the image is growing (or shrinking). Positive = objects moving outward (approaching), negative = inward (receding). One number per frame. |
 | `flow_magnitude` | **How much** motion there is at all — mean speed of every tracked point. A busy smoke plume scores high even if it's not perfectly radial. |
-| `flow_dir_hist_0..7` | **Which directions** the motion points. Pure rocket zoom-in concentrates in the "toward-center" bins; camera shake spreads across all bins. Lets the model tell "expansion" from "noise". |
+| `flow_dir_hist_0..7` | **Which directions** the motion points. Pure rocket zoom-in concentrates in the "toward-center" bins; camera shake spreads across all bins. Lets you tell "expansion" from "noise". |
 | `expansion_rate` | Smoothed radial velocity in px/s — the *speed* of size change. |
 | `expansion_acceleration` | How fast the rate of size change itself changes — sharp transitions (liftoff, burnout, parachute deploy) show up here. |
 
 Together: `flow_magnitude` says "something is moving", the histogram says "is it
 radial?", `radial_expansion` says "which way", and rate + acceleration describe
-the trajectory. That combination is what makes altitude predictable.
+the trajectory.
 
 ---
 
@@ -352,7 +278,6 @@ the trajectory. That combination is what makes altitude predictable.
 | Smoothing / acceleration | `savgol_filter`, `np.gradient` |
 | State de-flickering | `scipy.signal.medfilt` |
 | Synthetic test generator | `generate_synthetic()` |
-| Model history features | `train_model.py` (`vel_cumsum`, rolling, lags) |
 
 The math behind the FOE is a standard computer-vision result called the
 **Focus of Expansion / Focus of Contraction** estimation (Horn's optical-flow
