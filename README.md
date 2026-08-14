@@ -45,6 +45,207 @@ the servo to deploy its legs.
 
 ---
 
+## Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph INTERNET ["Internet Sources"]
+        V[Downloaded Launch Videos]
+    end
+
+    subgraph PIPELINE ["Flow 1 — Training Data"]
+        EX[OpenCV Feature Extraction]
+    end
+
+    subgraph TRAINING ["Flow 2 — Model Training"]
+        CSV[72-col Per-frame CSV]
+        HUM{Human Annotation}
+        LD[Labeled Dataset]
+        XGB[XGBoost Classifier]
+        LR[Logistic Regression]
+        SVM[SVM Baseline]
+        ACC{Accuracy Comparison}
+        BEST[Best Model]
+    end
+
+    subgraph FLIGHT ["Flow 3 — Live Flight"]
+        subgraph CANSAT ["Cansat"]
+            BARO[Barometer]
+            GYRO[Accelerometer]
+            CAM[Camera]
+            SERVO[Servo Motor]
+            BOARD[Main Board]
+        end
+        subgraph GROUND ["Ground Station"]
+            LORA_RX[LoRa Rx]
+            PROC[ML Inference]
+            SIGNAL[Deploy Signal]
+        end
+        MODEL[flight_model.xgb]
+        LORA_RF[LoRa RF Link]
+    end
+
+    V --> EX
+    EX --> CSV
+    CSV --> HUM
+    HUM --> LD
+    LD --> XGB
+    LD --> LR
+    LD --> SVM
+    XGB --> ACC
+    LR  --> ACC
+    SVM --> ACC
+    ACC --> BEST
+
+    BEST --> MODEL
+    BARO -. "telemetry (not processed)" .-> BOARD
+    GYRO -. "telemetry (not processed)" .-> BOARD
+    CAM --> BOARD
+    BOARD -- "IMU + frames (LoRa downlink)" --> LORA_RF
+    LORA_RF --> LORA_RX
+    LORA_RX --> PROC
+    MODEL --> PROC
+    PROC -- "deploy = YES" --> SIGNAL
+    SIGNAL --> LORA_RF
+    LORA_RF -- "uplink" --> BOARD
+    BOARD --> SERVO
+
+    style INTERNET fill:#f0f4f8,stroke:#9aafca
+    style PIPELINE fill:#fdf6ec,stroke:#d4a96a
+    style TRAINING fill:#fdf0f3,stroke:#c98fa0
+    style FLIGHT  fill:#f0f5fd,stroke:#7da7d9
+    style CANSAT  fill:#e6eef9,stroke:#7da7d9
+    style GROUND  fill:#fce8f0,stroke:#c98fa0
+```
+
+---
+
+## Flow 1 — Training Data Pipeline
+
+```mermaid
+flowchart LR
+    A[Internet Videos]
+    B[OpenCV — Extract Frames\nand Optical Flow Features]
+    C[72-column Per-frame CSV]
+    D[Human Annotation\nTimestamp Injection]
+    E{Labeled Event Markers}
+    F[Labeled Dataset\nLaunch / Apogee / Deploy / Landing]
+
+    A --> B --> C --> D --> E --> F
+
+    style A fill:#f0f4f8,stroke:#9aafca
+    style B fill:#e6eef9,stroke:#7da7d9
+    style C fill:#fdf6ec,stroke:#d4a96a
+    style D fill:#fdf0f3,stroke:#c98fa0
+    style E fill:#f5eefa,stroke:#a98ec9
+    style F fill:#e6eef9,stroke:#7da7d9
+```
+
+---
+
+## Flow 2 — Model Training
+
+```mermaid
+flowchart LR
+    A[Labeled Dataset]
+    B[XGBoost Classifier]
+    C[Logistic Regression]
+    D[SVM Baseline]
+    E{Accuracy Comparison}
+    F[F1 / ROC-AUC Evaluation]
+    G[flight_model.xgb]
+
+    A --> B --> E
+    A --> C --> E
+    A --> D --> E
+    E --> F --> G
+
+    style A fill:#e6eef9,stroke:#7da7d9
+    style B fill:#f0f4f8,stroke:#9aafca
+    style C fill:#e6eef9,stroke:#7da7d9
+    style D fill:#fdf6ec,stroke:#d4a96a
+    style E fill:#fdf0f3,stroke:#c98fa0
+    style F fill:#f5eefa,stroke:#a98ec9
+    style G fill:#e8f5ea,stroke:#6aaa80
+```
+
+---
+
+## Flow 3 — Live Flight Operation
+
+```mermaid
+flowchart TB
+    subgraph CANSAT ["Cansat (onboard)"]
+        BARO[Barometer]
+        GYRO[Accelerometer / Gyro]
+        CAM[Camera]
+        SERVO[Servo Motor]
+        BOARD[Main Board]
+        BARO -. "telemetry (not processed onboard)" .-> BOARD
+        GYRO -. "telemetry (not processed onboard)" .-> BOARD
+        CAM --> BOARD
+    end
+
+    subgraph GROUND ["Ground Station (laptop)"]
+        LORA_RX[LoRa Receiver]
+        FRAMES[Camera Frames]
+        ML[ML Model — flight_model.xgb]
+        PRED[Deploy Decision]
+        SIGNAL[Deploy Signal — YES]
+    end
+
+    LORA_RF[LoRa RF Link]
+
+    BOARD -- "IMU telemetry + frames\n(LoRa downlink)" --> LORA_RF
+    LORA_RF --> LORA_RX
+    LORA_RX --> FRAMES
+    FRAMES --> ML
+    ML --> PRED
+    PRED -- "deploy = YES" --> SIGNAL
+    SIGNAL --> LORA_RF
+    LORA_RF -- "uplink" --> BOARD
+    BOARD -- "actuates" --> SERVO
+
+    style CANSAT fill:#e6eef9,stroke:#7da7d9
+    style GROUND fill:#fce8f0,stroke:#c98fa0
+```
+
+---
+
+## Feature Engineering Pipeline
+
+```mermaid
+flowchart LR
+    A[Video Frame]
+    B[Shi-Tomasi Corners]
+    C[Lucas-Kanade Optical Flow]
+    D[FOE Estimation\nleast-squares]
+    E[Radial Speeds vs FOE]
+    F[Dense Flow — Farneback]
+    G[Divergence and Grid]
+    H[Affine and Homography]
+    I[Appearance Stats]
+    J[Edges / Texture / Sharpness\nSky / Ground]
+    K[Velocities, Acceleration\nState, Phase]
+    CSV[72-col Per-frame CSV]
+
+    A --> B --> C
+    C --> D --> E
+    C --> F --> G
+    C --> H
+    A --> I --> J
+    E --> K
+    G --> K
+    H --> K
+    J --> K
+    K --> CSV
+
+    style A  fill:#f0f4f8,stroke:#9aafca
+    style CSV fill:#e6eef9,stroke:#7da7d9
+```
+
+---
+
 ## Quick start
 
 ```bash
