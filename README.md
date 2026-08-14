@@ -20,11 +20,11 @@ flowchart LR
     D --> E[Labeled Dataset]
     E --> F[XGBoost +<br/>Baselines]
     F --> G[Best Model]
-    G --> H[📡 Live Flight]
-    I[📹 Camera +<br/>📦 IMU (relayed)] --> H
+    G --> H[Live Flight]
+    I[Camera +<br/>IMU (relayed)] --> H
     H --> J[ML Inference<br/>on Ground Station]
     J --> K[Deploy Signal]
-    K --> L[Servo → Legs Deploy]
+    K --> L[Servo -- Legs Deploy]
 ```
 
 **Training** — `rocket_flow.py` extracts 72 visual-motion features (optical flow,
