@@ -1,47 +1,7 @@
-# AeroNotts CanSat Landing-Detect
+# Vision Based Landing Detection system
 
-Vision-only apogee and leg-deployment timing for CanSat descent. The cansat's
-barometer and IMU data are streamed to the ground station but **not processed
-onboard** — all altitude detection comes from a vision model running on the
-laptop. When the right moment is detected, a deploy signal fires back to the
-cansat to actuate its shock-absorbing legs.
-
----
-
-## How it works
-
-Three stages:
-
-```mermaid
-flowchart LR
-    A[Internet Videos] --> B[OpenCV Feature Extraction]
-    B --> C[72-col per-frame CSV]
-    C --> D[Human Annotation<br/>launch / apogee / deploy / landing]
-    D --> E[Labeled Dataset]
-    E --> F[XGBoost +<br/>Baselines]
-    F --> G[Best Model]
-    G --> H[Live Flight]
-    I[Camera +<br/>IMU (relayed)] --> H
-    H --> J[ML Inference<br/>on Ground Station]
-    J --> K[Deploy Signal]
-    K --> L[Servo -- Legs Deploy]
-```
-
-**Training** — `rocket_flow.py` extracts 72 visual-motion features (optical flow,
-camera ego-motion, image appearance, flight phase) per video frame into a CSV.
-Humans annotate launch, apogee, deploy, and landing timestamps. XGBoost is
-trained and compared against logistic regression and SVM baselines; the
-highest-accuracy model is serialized as `flight_model/model.xgb`.
-
-**Live flight** — The cansat's main board bundles barometer + accelerometer
-data with camera frames and transmits everything via **LoRa downlink** to the
-ground station. The XGBoost model processes camera frames and, when it detects
-the approach window (just before ground contact), sends a **single "YES"
-deploy signal** back via **LoRa uplink**. The cansat's board locally actuates
-the servo to deploy its legs.
-
-> IMU/barometer telemetry is streamed for context and post-flight analysis but
-> does **not** factor into the deploy decision.
+Vision-only apogee and leg-deployment timing for CanSat descent. Which the model only takes the cansat's
+vision as the input while taking accelerometer and barometer post launch reference to determine te accuracy of the model during field deployment. Due to the restriction of cansat weight and cost of on-boarding module, LoRa is used as both up and downlink to recieve camera data as well as signal to deploy the leg based from ground. Laptop receives the camera data and IMU data from the cansat and processes it using the trained model to determine the right moment to deploy the leg. 
 
 ---
 
@@ -110,12 +70,12 @@ flowchart TB
     LORA_RF -- "uplink" --> BOARD
     BOARD --> SERVO
 
-    style INTERNET fill:#f0f4f8,stroke:#9aafca
-    style PIPELINE fill:#fdf6ec,stroke:#d4a96a
-    style TRAINING fill:#fdf0f3,stroke:#c98fa0
-    style FLIGHT  fill:#f0f5fd,stroke:#7da7d9
-    style CANSAT  fill:#e6eef9,stroke:#7da7d9
-    style GROUND  fill:#fce8f0,stroke:#c98fa0
+    style INTERNET fill:#f6f6f6,stroke:#8a8a8a
+    style PIPELINE fill:#eeeeee,stroke:#767676
+    style TRAINING fill:#ececec,stroke:#626262
+    style FLIGHT  fill:#e8e8e8,stroke:#555555
+    style CANSAT  fill:#e0e0e0,stroke:#444444
+    style GROUND  fill:#d8d8d8,stroke:#333333
 ```
 
 ---
@@ -133,12 +93,12 @@ flowchart LR
 
     A --> B --> C --> D --> E --> F
 
-    style A fill:#f0f4f8,stroke:#9aafca
-    style B fill:#e6eef9,stroke:#7da7d9
-    style C fill:#fdf6ec,stroke:#d4a96a
-    style D fill:#fdf0f3,stroke:#c98fa0
-    style E fill:#f5eefa,stroke:#a98ec9
-    style F fill:#e6eef9,stroke:#7da7d9
+    style A fill:#f6f6f6,stroke:#8a8a8a
+    style B fill:#e0e0e0,stroke:#444444
+    style C fill:#eeeeee,stroke:#767676
+    style D fill:#ececec,stroke:#626262
+    style E fill:#dcdcdc,stroke:#4a4a4a
+    style F fill:#e0e0e0,stroke:#444444
 ```
 
 ---
@@ -160,13 +120,13 @@ flowchart LR
     A --> D --> E
     E --> F --> G
 
-    style A fill:#e6eef9,stroke:#7da7d9
-    style B fill:#f0f4f8,stroke:#9aafca
-    style C fill:#e6eef9,stroke:#7da7d9
-    style D fill:#fdf6ec,stroke:#d4a96a
-    style E fill:#fdf0f3,stroke:#c98fa0
-    style F fill:#f5eefa,stroke:#a98ec9
-    style G fill:#e8f5ea,stroke:#6aaa80
+    style A fill:#e0e0e0,stroke:#444444
+    style B fill:#f6f6f6,stroke:#8a8a8a
+    style C fill:#e0e0e0,stroke:#444444
+    style D fill:#eeeeee,stroke:#767676
+    style E fill:#ececec,stroke:#626262
+    style F fill:#dcdcdc,stroke:#4a4a4a
+    style G fill:#d0d0d0,stroke:#222222
 ```
 
 ---
@@ -206,13 +166,10 @@ flowchart TB
     LORA_RF -- "uplink" --> BOARD
     BOARD -- "actuates" --> SERVO
 
-    style CANSAT fill:#e6eef9,stroke:#7da7d9
-    style GROUND fill:#fce8f0,stroke:#c98fa0
+    style CANSAT fill:#e0e0e0,stroke:#444444
+    style GROUND fill:#d8d8d8,stroke:#333333
 ```
-
----
-
-## Feature Engineering Pipeline
+## Feature extraction Pipeline
 
 ```mermaid
 flowchart LR
@@ -240,8 +197,8 @@ flowchart LR
     J --> K
     K --> CSV
 
-    style A  fill:#f0f4f8,stroke:#9aafca
-    style CSV fill:#e6eef9,stroke:#7da7d9
+    style A  fill:#f6f6f6,stroke:#8a8a8a
+    style CSV fill:#e0e0e0,stroke:#444444
 ```
 
 ---
@@ -249,6 +206,8 @@ flowchart LR
 ## Quick start
 
 ```bash
+git clone https://github.com/7-wwh/AeroNottsCanSat-Landing-Detect.git 
+cd AeroNottsCanSat-Landing-Detect
 pip install -r requirements.txt
 
 # 1. Extract vision features from a flight video → annotated video + CSV + plot
