@@ -93,12 +93,12 @@ flowchart LR
 
     A --> B --> C --> D --> E --> F
 
-    style A fill:#f6f6f6,stroke:#8a8a8a
-    style B fill:#e0e0e0,stroke:#444444
-    style C fill:#eeeeee,stroke:#767676
-    style D fill:#ececec,stroke:#626262
-    style E fill:#dcdcdc,stroke:#4a4a4a
-    style F fill:#e0e0e0,stroke:#444444
+    style A fill:#f6f6f6,stroke:#8a8a8a,color:#000000
+    style B fill:#e0e0e0,stroke:#444444,color:#000000
+    style C fill:#eeeeee,stroke:#767676,color:#000000
+    style D fill:#ececec,stroke:#626262,color:#000000
+    style E fill:#dcdcdc,stroke:#4a4a4a,color:#000000
+    style F fill:#e0e0e0,stroke:#444444,color:#000000
 ```
 
 ---
@@ -120,13 +120,13 @@ flowchart LR
     A --> D --> E
     E --> F --> G
 
-    style A fill:#e0e0e0,stroke:#444444
-    style B fill:#f6f6f6,stroke:#8a8a8a
-    style C fill:#e0e0e0,stroke:#444444
-    style D fill:#eeeeee,stroke:#767676
-    style E fill:#ececec,stroke:#626262
-    style F fill:#dcdcdc,stroke:#4a4a4a
-    style G fill:#d0d0d0,stroke:#222222
+    style A fill:#e0e0e0,stroke:#444444,color:#000000
+    style B fill:#f6f6f6,stroke:#8a8a8a,color:#000000
+    style C fill:#e0e0e0,stroke:#444444,color:#000000
+    style D fill:#eeeeee,stroke:#767676,color:#000000
+    style E fill:#ececec,stroke:#626262,color:#000000
+    style F fill:#dcdcdc,stroke:#4a4a4a,color:#000000
+    style G fill:#d0d0d0,stroke:#222222,color:#000000
 ```
 
 ---
