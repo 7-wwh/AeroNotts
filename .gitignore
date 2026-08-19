@@ -14,5 +14,8 @@ video input/csv output/
 __pycache__/
 *.pyc
 
+# Local agent instructions
+AGENTS.md
+
 # Synthetic test videos
 test*.mp4
