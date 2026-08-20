@@ -5,9 +5,7 @@
 *.mkv
 *.m4v
 
-# Generated data - per-frame metrics, points, labels, models, plots
-video input/csv output/
-*_metrics.csv
+# Generated plots (CSVs are committed for Colab training)
 *_metrics.png
 
 # Python
